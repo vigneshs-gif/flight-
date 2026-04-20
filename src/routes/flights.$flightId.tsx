@@ -38,10 +38,12 @@ const SEAT_LETTERS = ["A", "B", "C", "D", "E", "F"];
 
 function FlightDetailPage() {
   const { flightId } = Route.useParams();
+  const search = Route.useSearch();
   const navigate = useNavigate();
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const [selectedSeat, setSelectedSeat] = useState<string | null>(null);
+  const passengerCount = Math.max(1, Math.floor(search.passengers || 1));
+  const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [passengerName, setPassengerName] = useState("");
   const [passengerEmail, setPassengerEmail] = useState(user?.email ?? "");
@@ -128,17 +130,35 @@ function FlightDetailPage() {
     return "economy";
   };
 
-  const totalPrice = selectedSeat
-    ? Number(flight.base_price) * seatPriceMultiplier(parseInt(selectedSeat, 10))
-    : 0;
+  const totalPrice = selectedSeats.reduce(
+    (sum, seat) => sum + Number(flight.base_price) * seatPriceMultiplier(parseInt(seat, 10)),
+    0,
+  );
+
+  const toggleSeatSelection = (seat: string) => {
+    setSelectedSeats((current) => {
+      if (current.includes(seat)) {
+        return current.filter((value) => value !== seat);
+      }
+
+      if (current.length >= passengerCount) {
+        toast.error(`You can select ${passengerCount} seat${passengerCount > 1 ? "s" : ""}.`);
+        return current;
+      }
+
+      return [...current, seat];
+    });
+  };
 
   const continueToPayment = async () => {
     if (!user) {
       navigate({ to: "/auth", search: { mode: "signin", redirect: window.location.pathname } });
       return;
     }
-    if (!selectedSeat) {
-      toast.error("Please select a seat");
+    if (selectedSeats.length !== passengerCount) {
+      toast.error(
+        `Please select ${passengerCount} seat${passengerCount > 1 ? "s" : ""} to continue.`,
+      );
       return;
     }
     if (!passengerName.trim() || !passengerEmail.trim()) {
@@ -151,7 +171,8 @@ function FlightDetailPage() {
       to: "/payment",
       search: {
         flightId: flight.id,
-        seat: selectedSeat,
+        seats: selectedSeats.join(","),
+        passengers: passengerCount,
         passengerName: passengerName.trim(),
         passengerEmail: passengerEmail.trim(),
         passengerPhone: passengerPhone.trim(),
@@ -228,6 +249,11 @@ function FlightDetailPage() {
             <p className="text-xs text-muted-foreground mb-5">
               {takenSeats.length} of {flight.total_rows * flight.seats_per_row} seats booked
             </p>
+            <p className="text-sm text-muted-foreground mb-5">
+              Select {passengerCount} seat{passengerCount > 1 ? "s" : ""}. You have chosen{" "}
+              <span className="font-semibold text-foreground">{selectedSeats.length}</span> of{" "}
+              <span className="font-semibold text-foreground">{passengerCount}</span>.
+            </p>
 
             {/* Legend */}
             <div className="flex flex-wrap items-center gap-4 mb-6 text-xs">
@@ -255,7 +281,7 @@ function FlightDetailPage() {
                         {SEAT_LETTERS.map((letter, i) => {
                           const seat = `${row}${letter}`;
                           const taken = takenSeats.includes(seat);
-                          const isSelected = selectedSeat === seat;
+                          const isSelected = selectedSeats.includes(seat);
                           return (
                             <>
                               {i === 3 && <div key={`aisle-${row}`} />}
@@ -263,7 +289,7 @@ function FlightDetailPage() {
                                 key={seat}
                                 type="button"
                                 disabled={taken}
-                                onClick={() => setSelectedSeat(seat)}
+                                onClick={() => toggleSeatSelection(seat)}
                                 className={`h-7 rounded-md text-[10px] font-display font-semibold transition-all
                                   ${
                                     taken
@@ -330,15 +356,17 @@ function FlightDetailPage() {
 
             <div className="border-t border-border pt-4 space-y-2 text-sm">
               <div className="flex justify-between text-muted-foreground">
-                <span>Selected seat</span>
+                <span>Selected seats</span>
                 <span className="font-display font-semibold text-foreground">
-                  {selectedSeat ?? "—"}
+                  {selectedSeats.length > 0 ? selectedSeats.join(", ") : "—"}
                 </span>
               </div>
               <div className="flex justify-between text-muted-foreground">
                 <span>Class</span>
                 <span className="capitalize">
-                  {selectedSeat ? seatClass(parseInt(selectedSeat, 10)) : "—"}
+                  {selectedSeats.length > 0
+                    ? selectedSeats.map((seat) => `${seat}: ${seatClass(parseInt(seat, 10))}`).join(", ")
+                    : "—"}
                 </span>
               </div>
               <div className="flex justify-between font-display text-xl font-bold pt-2 border-t border-border">
@@ -349,7 +377,7 @@ function FlightDetailPage() {
 
             <Button
               onClick={continueToPayment}
-              disabled={!selectedSeat || submitting}
+              disabled={selectedSeats.length !== passengerCount || submitting}
               size="lg"
               className="w-full mt-5 shadow-sky"
             >

@@ -30,7 +30,9 @@ import type { Database } from "@/integrations/supabase/types";
 
 const paymentSearchSchema = z.object({
   flightId: z.string(),
-  seat: z.string(),
+  seat: z.string().optional(),
+  seats: z.string().optional(),
+  passengers: z.number().optional(),
   passengerName: z.string(),
   passengerEmail: z.string().email(),
   passengerPhone: z.string().optional().default(""),
@@ -192,10 +194,33 @@ function PaymentPage() {
     );
   }
 
-  const row = parseInt(search.seat, 10);
-  const seatClass = row <= 3 ? "first" : row <= 7 ? "business" : "economy";
-  const seatPriceMultiplier = row <= 3 ? 2.5 : row <= 7 ? 1.6 : 1;
-  const totalPriceUsd = Number(flight.base_price) * seatPriceMultiplier;
+  const selectedSeats = getSelectedSeatsFromSearch(search);
+  const passengerCount = Math.max(1, search.passengers ?? selectedSeats.length ?? 1);
+  if (selectedSeats.length === 0) {
+    return (
+      <div className="mx-auto max-w-xl px-4 py-16 text-center">
+        <h1 className="font-display text-2xl font-bold">Seat selection missing</h1>
+        <Button asChild variant="link" className="mt-4">
+          <Link to="/flights/$flightId" params={{ flightId: flight.id }} search={{ passengers: passengerCount }}>
+            Go back to seat selection
+          </Link>
+        </Button>
+      </div>
+    );
+  }
+
+  const seatBreakdown = selectedSeats.map((seat) => {
+    const row = parseInt(seat, 10);
+    const seatClass = row <= 3 ? "first" : row <= 7 ? "business" : "economy";
+    const seatPriceMultiplier = row <= 3 ? 2.5 : row <= 7 ? 1.6 : 1;
+
+    return {
+      seat,
+      seatClass,
+      totalPrice: Number(flight.base_price) * seatPriceMultiplier,
+    };
+  });
+  const totalPriceUsd = seatBreakdown.reduce((sum, item) => sum + item.totalPrice, 0);
   const paymentReference = getPaymentReference({
     paymentMethod,
     upiId,
@@ -210,7 +235,7 @@ function PaymentPage() {
     cardExpiry,
     cardCvv,
   });
-  const transactionId = `SKY${flight.flight_number.replace(/\W/g, "")}${search.seat}${search.passengerName
+  const transactionId = `SKY${flight.flight_number.replace(/\W/g, "")}${selectedSeats[0] ?? "XX"}${selectedSeats.length}${search.passengerName
     .slice(0, 2)
     .toUpperCase()}`;
 
@@ -243,10 +268,8 @@ function PaymentPage() {
       passengerName: search.passengerName,
       passengerEmail: search.passengerEmail,
       passengerPhone: search.passengerPhone || null,
-      seatNumber: search.seat,
-      seatClass,
+      seats: seatBreakdown,
       paymentMethod,
-      totalPrice: totalPriceUsd,
     });
     setSubmitting(false);
 
@@ -254,19 +277,26 @@ function PaymentPage() {
       if (error.code === "23505") {
         toast.error("That seat was just booked. Please pick another.");
         queryClient.invalidateQueries({ queryKey: ["taken-seats", flight.id] });
-        navigate({ to: "/flights/$flightId", params: { flightId: flight.id } });
+        navigate({
+          to: "/flights/$flightId",
+          params: { flightId: flight.id },
+          search: { passengers: passengerCount },
+        });
       } else {
         toast.error(error.message);
       }
       return;
     }
 
-    const emailResult = await notifyBookingStatusEmail(data.id);
-    toast.success(
-      `${PAYMENT_METHOD_LABELS[paymentMethod]} payment submitted. Booking reference ${data.booking_reference}`,
+    const emailResults = await Promise.allSettled(data.map((booking) => notifyBookingStatusEmail(booking.id)));
+    const emailFailed = emailResults.some(
+      (result) => result.status === "rejected" || (result.status === "fulfilled" && !result.value.ok),
     );
-    if (!emailResult.ok) {
-      toast.warning(emailResult.message ?? "Booking saved, but the email could not be sent.");
+    toast.success(
+      `${PAYMENT_METHOD_LABELS[paymentMethod]} payment submitted for ${selectedSeats.length} seat${selectedSeats.length > 1 ? "s" : ""}.`,
+    );
+    if (emailFailed) {
+      toast.warning("Booking saved, but one or more confirmation emails could not be sent.");
     }
     navigate({ to: "/bookings" });
   };
@@ -275,7 +305,11 @@ function PaymentPage() {
     <div className="min-h-[calc(100vh-4rem)] bg-[radial-gradient(circle_at_top,#dbeafe_0%,#f8fafc_45%,#eef2ff_100%)]">
       <div className="mx-auto max-w-6xl px-4 py-8 md:px-6">
         <Button asChild variant="ghost" size="sm" className="mb-4 -ml-2">
-          <Link to="/flights/$flightId" params={{ flightId: flight.id }} search={{ passengers: 1 }}>
+          <Link
+            to="/flights/$flightId"
+            params={{ flightId: flight.id }}
+            search={{ passengers: passengerCount }}
+          >
             <ArrowLeft className="mr-1 h-4 w-4" /> Back to seat selection
           </Link>
         </Button>
@@ -315,7 +349,10 @@ function PaymentPage() {
                 <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
                   <Info label="Passenger" value={search.passengerName} />
                   <Info label="Email" value={search.passengerEmail} />
-                  <Info label="Seat" value={`${search.seat} · ${seatClass}`} />
+                  <Info
+                    label="Seat"
+                    value={seatBreakdown.map(({ seat, seatClass }) => `${seat} · ${seatClass}`).join(", ")}
+                  />
                   <Info label="Amount" value={formatCurrencyInr(totalPriceUsd)} />
                 </div>
               </div>
@@ -506,7 +543,11 @@ function PaymentPage() {
                 Payment progress
               </div>
               <div className="mt-3 space-y-3">
-                <StepRow active label="Seat reserved" detail={`Seat ${search.seat} is held for this session`} />
+                <StepRow
+                  active
+                  label="Seat reserved"
+                  detail={`${selectedSeats.join(", ")} ${selectedSeats.length > 1 ? "are" : "is"} held for this session`}
+                />
                 <StepRow
                   active
                   label={`${PAYMENT_METHOD_LABELS[paymentMethod]} ready`}
@@ -699,50 +740,56 @@ async function insertBookingWithFallback({
   passengerName,
   passengerEmail,
   passengerPhone,
-  seatNumber,
-  seatClass,
+  seats,
   paymentMethod,
-  totalPrice,
 }: {
   userId: string;
   flightId: string;
   passengerName: string;
   passengerEmail: string;
   passengerPhone: string | null;
-  seatNumber: string;
-  seatClass: string;
+  seats: Array<{
+    seat: string;
+    seatClass: Database["public"]["Enums"]["seat_class"];
+    totalPrice: number;
+  }>;
   paymentMethod: PaymentMethod;
-  totalPrice: number;
 }) {
-  const basePayload = {
+  const basePayload = seats.map(({ seat, seatClass, totalPrice }) => ({
     user_id: userId,
     flight_id: flightId,
     passenger_name: passengerName,
     passenger_email: passengerEmail,
     passenger_phone: passengerPhone,
-    seat_number: seatNumber,
+    seat_number: seat,
     seat_class: seatClass,
     total_price: totalPrice,
     status: "pending" as const,
-  };
+  }));
 
   const initialResult = await supabase
     .from("bookings")
-    .insert({
-      ...basePayload,
-      payment_method: paymentMethod,
-    })
+    .insert(basePayload.map((booking) => ({ ...booking, payment_method: paymentMethod })))
     .select()
-    .single();
+    .order("created_at", { ascending: true });
 
   if (!initialResult.error || !isMissingPaymentMethodColumnError(initialResult.error.message)) {
     return initialResult;
   }
 
-  return supabase.from("bookings").insert(basePayload).select().single();
+  return supabase.from("bookings").insert(basePayload).select().order("created_at", { ascending: true });
 }
 
 function isMissingPaymentMethodColumnError(message: string) {
   const lowerMessage = message.toLowerCase();
   return lowerMessage.includes("payment_method") && lowerMessage.includes("schema cache");
+}
+
+function getSelectedSeatsFromSearch(search: z.infer<typeof paymentSearchSchema>) {
+  const seatValues = (search.seats ?? search.seat ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(seatValues));
 }

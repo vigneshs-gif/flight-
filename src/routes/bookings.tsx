@@ -24,8 +24,6 @@ const PAYMENT_METHOD_LABELS: Record<Database["public"]["Enums"]["payment_method"
   wallet: "Wallet",
 };
 
-const CANCELLATION_APPROVAL_STORAGE_KEY = "skydeep-cancellation-approval-unavailable";
-
 function getPaymentMethodLabel(method?: string | null) {
   if (!method) return "Card";
   return PAYMENT_METHOD_LABELS[method as Database["public"]["Enums"]["payment_method"]] ?? "Card";
@@ -154,14 +152,8 @@ function BookingCard({
 }) {
   const queryClient = useQueryClient();
   const [requestingCancellation, setRequestingCancellation] = useState(false);
-  const [approvalUnavailable, setApprovalUnavailable] = useState(false);
   const flight = booking.flights;
   if (!flight) return null;
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    setApprovalUnavailable(window.localStorage.getItem(CANCELLATION_APPROVAL_STORAGE_KEY) === "true");
-  }, []);
 
   const canRequestCancellation = booking.status === "pending" || booking.status === "confirmed";
 
@@ -174,10 +166,6 @@ function BookingCard({
     setRequestingCancellation(false);
 
     if (needsSchemaUpdate) {
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(CANCELLATION_APPROVAL_STORAGE_KEY, "true");
-      }
-      setApprovalUnavailable(true);
       toast.warning("Cancellation approval will appear after the database update is completed.");
       return;
     }
@@ -257,7 +245,7 @@ function BookingCard({
           <Detail icon={Ticket} label="Total" value={formatCurrencyInr(Number(booking.total_price))} />
         </div>
 
-        {canRequestCancellation && !approvalUnavailable && (
+        {canRequestCancellation && (
           <div className="mt-5 flex justify-end">
             <Button
               type="button"
@@ -273,12 +261,6 @@ function BookingCard({
               )}
               Request cancellation
             </Button>
-          </div>
-        )}
-
-        {canRequestCancellation && approvalUnavailable && (
-          <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            Cancellation approval will be available after the database update is applied.
           </div>
         )}
       </div>
