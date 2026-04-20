@@ -20,6 +20,7 @@ export type Database = {
           created_at: string
           flight_id: string
           id: string
+          payment_method: Database["public"]["Enums"]["payment_method"]
           passenger_email: string
           passenger_name: string
           passenger_phone: string | null
@@ -35,6 +36,7 @@ export type Database = {
           created_at?: string
           flight_id: string
           id?: string
+          payment_method?: Database["public"]["Enums"]["payment_method"]
           passenger_email: string
           passenger_name: string
           passenger_phone?: string | null
@@ -50,6 +52,7 @@ export type Database = {
           created_at?: string
           flight_id?: string
           id?: string
+          payment_method?: Database["public"]["Enums"]["payment_method"]
           passenger_email?: string
           passenger_name?: string
           passenger_phone?: string | null
@@ -205,7 +208,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "customer"
-      booking_status: "confirmed" | "cancelled" | "pending"
+      booking_status: "confirmed" | "cancelled" | "pending" | "cancellation_requested"
       flight_status:
         | "scheduled"
         | "boarding"
@@ -214,6 +217,7 @@ export type Database = {
         | "landed"
         | "delayed"
         | "cancelled"
+      payment_method: "card" | "upi" | "net_banking" | "wallet"
       seat_class: "economy" | "business" | "first"
     }
     CompositeTypes: {
@@ -343,7 +347,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "customer"],
-      booking_status: ["confirmed", "cancelled", "pending"],
+      booking_status: ["confirmed", "cancelled", "pending", "cancellation_requested"],
       flight_status: [
         "scheduled",
         "boarding",
@@ -353,6 +357,7 @@ export const Constants = {
         "delayed",
         "cancelled",
       ],
+      payment_method: ["card", "upi", "net_banking", "wallet"],
       seat_class: ["economy", "business", "first"],
     },
   },

@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   StatusBadge,
+  formatCurrencyInr,
   formatDate,
   formatDuration,
   formatTime,
@@ -131,7 +132,7 @@ function FlightDetailPage() {
     ? Number(flight.base_price) * seatPriceMultiplier(parseInt(selectedSeat, 10))
     : 0;
 
-  const handleBook = async () => {
+  const continueToPayment = async () => {
     if (!user) {
       navigate({ to: "/auth", search: { mode: "signin", redirect: window.location.pathname } });
       return;
@@ -145,34 +146,17 @@ function FlightDetailPage() {
       return;
     }
     setSubmitting(true);
-    const row = parseInt(selectedSeat, 10);
-    const { data, error } = await supabase
-      .from("bookings")
-      .insert({
-        user_id: user.id,
-        flight_id: flight.id,
-        passenger_name: passengerName.trim(),
-        passenger_email: passengerEmail.trim(),
-        passenger_phone: passengerPhone.trim() || null,
-        seat_number: selectedSeat,
-        seat_class: seatClass(row),
-        total_price: totalPrice,
-      })
-      .select()
-      .single();
     setSubmitting(false);
-    if (error) {
-      if (error.code === "23505") {
-        toast.error("That seat was just booked. Please pick another.");
-        queryClient.invalidateQueries({ queryKey: ["taken-seats", flightId] });
-        setSelectedSeat(null);
-      } else {
-        toast.error(error.message);
-      }
-      return;
-    }
-    toast.success(`Booked! Reference ${data.booking_reference}`);
-    navigate({ to: "/bookings" });
+    navigate({
+      to: "/payment",
+      search: {
+        flightId: flight.id,
+        seat: selectedSeat,
+        passengerName: passengerName.trim(),
+        passengerEmail: passengerEmail.trim(),
+        passengerPhone: passengerPhone.trim(),
+      },
+    });
   };
 
   return (
@@ -198,20 +182,30 @@ function FlightDetailPage() {
             </div>
             <div className="flex-1 flex items-center gap-4">
               <div>
-                <div className="font-display text-xl font-bold">{formatTime(flight.departure_time)}</div>
-                <div className="text-xs text-muted-foreground">{flight.origin_code} · {flight.origin_city}</div>
+                <div className="font-display text-xl font-bold">
+                  {formatTime(flight.departure_time)}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {flight.origin_code} · {flight.origin_city}
+                </div>
               </div>
               <div className="flex-1 text-center text-xs text-muted-foreground">
                 {formatDuration(flight.departure_time, flight.arrival_time)}
               </div>
               <div>
-                <div className="font-display text-xl font-bold">{formatTime(flight.arrival_time)}</div>
-                <div className="text-xs text-muted-foreground">{flight.destination_code} · {flight.destination_city}</div>
+                <div className="font-display text-xl font-bold">
+                  {formatTime(flight.arrival_time)}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {flight.destination_code} · {flight.destination_city}
+                </div>
               </div>
             </div>
             <div className="flex flex-col items-end gap-1">
               <StatusBadge status={flight.status} />
-              <div className="text-xs text-muted-foreground">{formatDate(flight.departure_time)}</div>
+              <div className="text-xs text-muted-foreground">
+                {formatDate(flight.departure_time)}
+              </div>
               {flight.gate && (
                 <div className="text-xs text-muted-foreground">
                   Gate {flight.gate} · Terminal {flight.terminal}
@@ -275,12 +269,12 @@ function FlightDetailPage() {
                                     taken
                                       ? "bg-muted text-muted-foreground/40 cursor-not-allowed"
                                       : isSelected
-                                      ? "bg-accent text-accent-foreground scale-110 shadow-sky"
-                                      : cls === "first"
-                                      ? "bg-secondary/30 border border-secondary hover:bg-secondary/50"
-                                      : cls === "business"
-                                      ? "bg-sky-glow/20 border border-sky-glow/40 hover:bg-sky-glow/30"
-                                      : "bg-card border border-border hover:border-accent hover:bg-accent/5"
+                                        ? "bg-accent text-accent-foreground scale-110 shadow-sky"
+                                        : cls === "first"
+                                          ? "bg-secondary/30 border border-secondary hover:bg-secondary/50"
+                                          : cls === "business"
+                                            ? "bg-sky-glow/20 border border-sky-glow/40 hover:bg-sky-glow/30"
+                                            : "bg-card border border-border hover:border-accent hover:bg-accent/5"
                                   }`}
                                 aria-label={`Seat ${seat}${taken ? " (taken)" : ""}`}
                               >
@@ -349,12 +343,12 @@ function FlightDetailPage() {
               </div>
               <div className="flex justify-between font-display text-xl font-bold pt-2 border-t border-border">
                 <span>Total</span>
-                <span className="text-accent">${totalPrice.toFixed(2)}</span>
+                <span className="text-accent">{formatCurrencyInr(totalPrice)}</span>
               </div>
             </div>
 
             <Button
-              onClick={handleBook}
+              onClick={continueToPayment}
               disabled={!selectedSeat || submitting}
               size="lg"
               className="w-full mt-5 shadow-sky"
@@ -362,7 +356,7 @@ function FlightDetailPage() {
               {submitting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : user ? (
-                "Confirm booking"
+                "Continue to payment"
               ) : (
                 "Sign in to book"
               )}

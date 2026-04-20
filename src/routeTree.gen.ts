@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SearchRouteImport } from './routes/search'
+import { Route as PaymentRouteImport } from './routes/payment'
 import { Route as BookingsRouteImport } from './routes/bookings'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AdminRouteImport } from './routes/admin'
@@ -19,6 +20,11 @@ import { Route as FlightsFlightIdRouteImport } from './routes/flights.$flightId'
 const SearchRoute = SearchRouteImport.update({
   id: '/search',
   path: '/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PaymentRoute = PaymentRouteImport.update({
+  id: '/payment',
+  path: '/payment',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BookingsRoute = BookingsRouteImport.update({
@@ -52,6 +58,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
   '/bookings': typeof BookingsRoute
+  '/payment': typeof PaymentRoute
   '/search': typeof SearchRoute
   '/flights/$flightId': typeof FlightsFlightIdRoute
 }
@@ -60,6 +67,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
   '/bookings': typeof BookingsRoute
+  '/payment': typeof PaymentRoute
   '/search': typeof SearchRoute
   '/flights/$flightId': typeof FlightsFlightIdRoute
 }
@@ -69,6 +77,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
   '/bookings': typeof BookingsRoute
+  '/payment': typeof PaymentRoute
   '/search': typeof SearchRoute
   '/flights/$flightId': typeof FlightsFlightIdRoute
 }
@@ -79,16 +88,25 @@ export interface FileRouteTypes {
     | '/admin'
     | '/auth'
     | '/bookings'
+    | '/payment'
     | '/search'
     | '/flights/$flightId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/admin' | '/auth' | '/bookings' | '/search' | '/flights/$flightId'
+  to:
+    | '/'
+    | '/admin'
+    | '/auth'
+    | '/bookings'
+    | '/payment'
+    | '/search'
+    | '/flights/$flightId'
   id:
     | '__root__'
     | '/'
     | '/admin'
     | '/auth'
     | '/bookings'
+    | '/payment'
     | '/search'
     | '/flights/$flightId'
   fileRoutesById: FileRoutesById
@@ -98,6 +116,7 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRoute
   AuthRoute: typeof AuthRoute
   BookingsRoute: typeof BookingsRoute
+  PaymentRoute: typeof PaymentRoute
   SearchRoute: typeof SearchRoute
   FlightsFlightIdRoute: typeof FlightsFlightIdRoute
 }
@@ -109,6 +128,13 @@ declare module '@tanstack/react-router' {
       path: '/search'
       fullPath: '/search'
       preLoaderRoute: typeof SearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/payment': {
+      id: '/payment'
+      path: '/payment'
+      fullPath: '/payment'
+      preLoaderRoute: typeof PaymentRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/bookings': {
@@ -154,6 +180,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRoute,
   AuthRoute: AuthRoute,
   BookingsRoute: BookingsRoute,
+  PaymentRoute: PaymentRoute,
   SearchRoute: SearchRoute,
   FlightsFlightIdRoute: FlightsFlightIdRoute,
 }

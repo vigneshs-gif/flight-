@@ -5,6 +5,7 @@ import { ShieldCheck, Loader2, Users, Plane as PlaneIcon } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
+import { notifyBookingStatusEmail } from "@/lib/booking-email";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -16,17 +17,27 @@ import {
 import {
   StatusBadge,
   STATUS_META,
+  formatCurrencyInr,
   formatDate,
   formatTime,
   type Flight,
   type FlightStatus,
 } from "@/lib/flight-utils";
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-} from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import type { Database } from "@/integrations/supabase/types";
+
+type BookingStatus = Database["public"]["Enums"]["booking_status"];
+const PAYMENT_METHOD_LABELS: Record<Database["public"]["Enums"]["payment_method"], string> = {
+  card: "Card",
+  upi: "UPI",
+  net_banking: "Net banking",
+  wallet: "Wallet",
+};
+
+function getPaymentMethodLabel(method?: string | null) {
+  if (!method) return "Card";
+  return PAYMENT_METHOD_LABELS[method as Database["public"]["Enums"]["payment_method"]] ?? "Card";
+}
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -86,9 +97,7 @@ function PromoteToAdmin({ userId, userEmail }: { userId: string; userEmail: stri
       return;
     }
 
-    const { error } = await supabase
-      .from("user_roles")
-      .insert({ user_id: userId, role: "admin" });
+    const { error } = await supabase.from("user_roles").insert({ user_id: userId, role: "admin" });
     setBusy(false);
     if (error) {
       toast.error(error.message);
@@ -103,9 +112,8 @@ function PromoteToAdmin({ userId, userEmail }: { userId: string; userEmail: stri
       <ShieldCheck className="h-12 w-12 mx-auto text-accent mb-4" />
       <h1 className="font-display text-2xl font-bold mb-2">Become the first admin</h1>
       <p className="text-sm text-muted-foreground mb-5">
-        Signed in as <span className="font-medium">{userEmail}</span>. The first user
-        to claim admin access gets the role automatically. Subsequent admins must be
-        added by an existing admin.
+        Signed in as <span className="font-medium">{userEmail}</span>. The first user to claim admin
+        access gets the role automatically. Subsequent admins must be added by an existing admin.
       </p>
       <Button onClick={promote} disabled={busy} className="shadow-sky">
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Claim admin role"}
@@ -250,6 +258,7 @@ function FlightsAdmin() {
 }
 
 function BookingsAdmin() {
+  const queryClient = useQueryClient();
   const { data: bookings, isLoading } = useQuery({
     queryKey: ["admin-bookings"],
     queryFn: async () => {
@@ -262,6 +271,39 @@ function BookingsAdmin() {
       return data;
     },
   });
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("admin-bookings-rt")
+      .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, () =>
+        queryClient.invalidateQueries({ queryKey: ["admin-bookings"] }),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
+
+  const updateBookingStatus = async (id: string, status: BookingStatus) => {
+    const { error } = await supabase.from("bookings").update({ status }).eq("id", id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    const emailResult = await notifyBookingStatusEmail(id);
+    queryClient.invalidateQueries({ queryKey: ["admin-bookings"] });
+    const message =
+      status === "confirmed"
+        ? "Booking approved successfully."
+        : status === "cancelled"
+          ? "Booking cancelled successfully."
+          : "Booking updated successfully.";
+    toast.success(message);
+    if (!emailResult.ok) {
+      toast.warning(emailResult.message ?? "Status updated, but the email could not be sent.");
+    }
+  };
 
   if (isLoading) {
     return (
@@ -283,14 +325,17 @@ function BookingsAdmin() {
               <th className="text-left px-4 py-3">Passenger</th>
               <th className="text-left px-4 py-3">Flight</th>
               <th className="text-left px-4 py-3">Seat</th>
+              <th className="text-left px-4 py-3">Payment</th>
+              <th className="text-left px-4 py-3">Status</th>
               <th className="text-left px-4 py-3">Total</th>
               <th className="text-left px-4 py-3">Booked</th>
+              <th className="text-left px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
             {bookings?.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
+                <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
                   No bookings yet.
                 </td>
               </tr>
@@ -309,9 +354,35 @@ function BookingsAdmin() {
                   </span>
                 </td>
                 <td className="px-4 py-3 font-display font-semibold">{b.seat_number}</td>
-                <td className="px-4 py-3">${Number(b.total_price).toFixed(2)}</td>
+                <td className="px-4 py-3">{getPaymentMethodLabel(b.payment_method)}</td>
+                <td className="px-4 py-3">
+                  <AdminBookingStatusBadge status={b.status as BookingStatus} />
+                </td>
+                <td className="px-4 py-3">{formatCurrencyInr(Number(b.total_price))}</td>
                 <td className="px-4 py-3 text-xs text-muted-foreground">
                   {new Date(b.created_at).toLocaleString()}
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => updateBookingStatus(b.id, "confirmed")}
+                      disabled={b.status !== "pending"}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => updateBookingStatus(b.id, "cancelled")}
+                      disabled={b.status !== "cancellation_requested"}
+                    >
+                      Approve cancellation
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -319,5 +390,24 @@ function BookingsAdmin() {
         </table>
       </div>
     </div>
+  );
+}
+
+function AdminBookingStatusBadge({ status }: { status: BookingStatus }) {
+  const meta =
+    status === "confirmed"
+      ? "bg-success/15 text-success border-success/30"
+      : status === "pending"
+        ? "bg-warning/15 text-warning-foreground border-warning/40"
+        : status === "cancellation_requested"
+          ? "bg-amber-500/15 text-amber-700 border-amber-500/30"
+          : "bg-destructive/15 text-destructive border-destructive/30";
+
+  const label = status === "cancellation_requested" ? "Cancellation requested" : status;
+
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium capitalize ${meta}`}>
+      {label.replace("_", " ")}
+    </span>
   );
 }

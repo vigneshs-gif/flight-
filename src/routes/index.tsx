@@ -1,7 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Plane, Zap, ShieldCheck, Sparkles } from "lucide-react";
 import { FlightSearchForm } from "@/components/flight-search-form";
+import { useAuth } from "@/lib/auth-context";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -23,8 +25,44 @@ export const Route = createFileRoute("/")({
 });
 
 function HomePage() {
+  const [showLoader, setShowLoader] = useState(true);
+  const { user, loading } = useAuth();
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowLoader(false), 1800);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   return (
     <div>
+      {showLoader && (
+        <motion.div
+          initial={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-sky-deep text-white"
+        >
+          <div className="loader-space">
+            <div className="loader-earth-glow" />
+            <div className="loader-orbit-ring" />
+            <div className="loader-earth">
+              <div className="loader-earth-continent loader-earth-continent-one" />
+              <div className="loader-earth-continent loader-earth-continent-two" />
+              <div className="loader-earth-continent loader-earth-continent-three" />
+            </div>
+            <div className="loader-plane-orbit">
+              <div className="loader-plane-marker">
+                <Plane className="h-5 w-5 -rotate-12" />
+              </div>
+            </div>
+            <div className="loader-copy">
+              <div className="loader-copy-title">Preparing your journey</div>
+              <div className="loader-copy-text">Flight is orbiting the earth...</div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {/* Hero */}
       <section className="relative overflow-hidden bg-hero-gradient text-white">
         <div className="absolute inset-0 opacity-30">
@@ -44,12 +82,11 @@ function HomePage() {
               Live availability
             </div>
             <h1 className="font-display text-5xl md:text-7xl font-bold leading-[1.05] tracking-tight">
-              Book flights{" "}
-              <span className="text-gradient-sky">in realtime.</span>
+              Book flights <span className="text-gradient-sky">in realtime.</span>
             </h1>
             <p className="mt-5 text-lg md:text-xl text-white/75 max-w-xl">
-              Watch seats fill live. Track flight status from boarding to landing.
-              No refresh required.
+              Watch seats fill live. Track flight status from boarding to landing. No refresh
+              required.
             </p>
           </motion.div>
         </div>
@@ -109,17 +146,22 @@ function HomePage() {
         <div className="bg-card-gradient rounded-3xl p-10 md:p-14 text-white relative overflow-hidden">
           <Sparkles className="absolute top-6 right-6 h-6 w-6 text-sky-glow/60" />
           <h2 className="font-display text-3xl md:text-4xl font-bold mb-3 max-w-xl">
-            Sign up to track your bookings live
+            {user ? "Track your bookings live" : "Sign up to track your bookings live"}
           </h2>
           <p className="text-white/70 mb-6 max-w-md">
-            Create a free account to manage bookings and receive realtime gate &amp; status updates.
+            {user
+              ? "Open your bookings to follow flight status, seats, and trip details in realtime."
+              : "Create a free account to manage bookings and receive realtime gate & status updates."}
           </p>
-          <Link
-            to="/auth"
-            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-sky-glow text-sky-deep font-semibold hover:bg-sky-glow/90 transition-colors"
-          >
-            Create account
-          </Link>
+          {!loading && (
+            <Link
+              to={user ? "/bookings" : "/auth"}
+              search={user ? undefined : { mode: "signup" }}
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-sky-glow text-sky-deep font-semibold hover:bg-sky-glow/90 transition-colors"
+            >
+              {user ? "View bookings" : "Create account"}
+            </Link>
+          )}
         </div>
       </section>
     </div>

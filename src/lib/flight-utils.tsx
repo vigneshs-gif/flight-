@@ -3,6 +3,7 @@ import type { Database } from "@/integrations/supabase/types";
 
 export type Flight = Database["public"]["Tables"]["flights"]["Row"];
 export type FlightStatus = Database["public"]["Enums"]["flight_status"];
+export const USD_TO_INR_RATE = 83.5;
 
 export const STATUS_META: Record<
   FlightStatus,
@@ -42,4 +43,16 @@ export function formatTime(iso: string) {
 
 export function formatDate(iso: string) {
   return format(new Date(iso), "EEE, MMM d");
+}
+
+export function convertUsdToInr(amount: number) {
+  return amount * USD_TO_INR_RATE;
+}
+
+export function formatCurrencyInr(amount: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(convertUsdToInr(amount));
 }

@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { FlightSearchForm } from "@/components/flight-search-form";
 import {
   StatusBadge,
+  formatCurrencyInr,
   formatDate,
   formatDuration,
   formatTime,
@@ -194,7 +195,7 @@ function FlightResultCard({
           <div className="text-right">
             <div className="text-xs text-muted-foreground">from</div>
             <div className="font-display text-2xl font-bold text-accent">
-              ${Number(flight.base_price).toFixed(0)}
+              {formatCurrencyInr(Number(flight.base_price))}
             </div>
             <Button asChild size="sm" className="mt-1 shadow-sky">
               <Link to="/flights/$flightId" params={{ flightId: flight.id }} search={{ passengers }}>

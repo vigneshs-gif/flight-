@@ -1,19 +1,35 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Plane, Ticket, Calendar, MapPin } from "lucide-react";
+import { Plane, Ticket, Calendar, MapPin, Ban, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import {
   StatusBadge,
+  formatCurrencyInr,
   formatDate,
   formatTime,
   formatDuration,
   type Flight,
 } from "@/lib/flight-utils";
 import type { Database } from "@/integrations/supabase/types";
+
+const PAYMENT_METHOD_LABELS: Record<Database["public"]["Enums"]["payment_method"], string> = {
+  card: "Card",
+  upi: "UPI",
+  net_banking: "Net banking",
+  wallet: "Wallet",
+};
+
+const CANCELLATION_APPROVAL_STORAGE_KEY = "skydeep-cancellation-approval-unavailable";
+
+function getPaymentMethodLabel(method?: string | null) {
+  if (!method) return "Card";
+  return PAYMENT_METHOD_LABELS[method as Database["public"]["Enums"]["payment_method"]] ?? "Card";
+}
 
 type Booking = Database["public"]["Tables"]["bookings"]["Row"] & {
   flights: Flight | null;
@@ -52,10 +68,8 @@ function BookingsPage() {
     if (!user) return;
     const channel = supabase
       .channel(`bookings-${user.id}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "flights" },
-        () => queryClient.invalidateQueries({ queryKey: ["bookings", user.id] }),
+      .on("postgres_changes", { event: "*", schema: "public", table: "flights" }, () =>
+        queryClient.invalidateQueries({ queryKey: ["bookings", user.id] }),
       )
       .on(
         "postgres_changes",
@@ -121,7 +135,7 @@ function BookingsPage() {
 
         <div className="space-y-4">
           {bookings?.map((b, i) => (
-            <BookingCard key={b.id} booking={b} index={i} />
+            <BookingCard key={b.id} booking={b} index={i} userId={user.id} />
           ))}
         </div>
       </div>
@@ -129,9 +143,53 @@ function BookingsPage() {
   );
 }
 
-function BookingCard({ booking, index }: { booking: Booking; index: number }) {
+function BookingCard({
+  booking,
+  index,
+  userId,
+}: {
+  booking: Booking;
+  index: number;
+  userId: string;
+}) {
+  const queryClient = useQueryClient();
+  const [requestingCancellation, setRequestingCancellation] = useState(false);
+  const [approvalUnavailable, setApprovalUnavailable] = useState(false);
   const flight = booking.flights;
   if (!flight) return null;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setApprovalUnavailable(window.localStorage.getItem(CANCELLATION_APPROVAL_STORAGE_KEY) === "true");
+  }, []);
+
+  const canRequestCancellation = booking.status === "pending" || booking.status === "confirmed";
+
+  const requestCancellation = async () => {
+    setRequestingCancellation(true);
+    const { error, needsSchemaUpdate } = await requestBookingCancellation({
+      bookingId: booking.id,
+      userId,
+    });
+    setRequestingCancellation(false);
+
+    if (needsSchemaUpdate) {
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(CANCELLATION_APPROVAL_STORAGE_KEY, "true");
+      }
+      setApprovalUnavailable(true);
+      toast.warning("Cancellation approval will appear after the database update is completed.");
+      return;
+    }
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    queryClient.invalidateQueries({ queryKey: ["bookings", userId] });
+    toast.success(`Cancellation request sent for ${booking.booking_reference}.`);
+  };
 
   return (
     <motion.div
@@ -144,18 +202,21 @@ function BookingCard({ booking, index }: { booking: Booking; index: number }) {
       <div className="bg-card-gradient text-white p-5 md:p-6 relative">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
-            <div className="text-[10px] uppercase tracking-[0.2em] text-white/60">
-              Booking ref
-            </div>
+            <div className="text-[10px] uppercase tracking-[0.2em] text-white/60">Booking ref</div>
             <div className="font-display text-2xl font-bold tracking-wider">
               {booking.booking_reference}
             </div>
           </div>
-          <StatusBadge status={flight.status} />
+          <div className="flex flex-col items-end gap-2">
+            <StatusBadge status={flight.status} />
+            <BookingStatusBadge status={booking.status} />
+          </div>
         </div>
         <div className="flex items-center gap-4">
           <div>
-            <div className="font-display text-3xl font-bold">{formatTime(flight.departure_time)}</div>
+            <div className="font-display text-3xl font-bold">
+              {formatTime(flight.departure_time)}
+            </div>
             <div className="text-xs text-white/70">{flight.origin_code}</div>
           </div>
           <div className="flex-1 flex flex-col items-center gap-1">
@@ -174,13 +235,103 @@ function BookingCard({ booking, index }: { booking: Booking; index: number }) {
       </div>
 
       {/* Bottom details */}
-      <div className="p-5 md:p-6 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-        <Detail icon={Calendar} label="Date" value={formatDate(flight.departure_time)} />
-        <Detail icon={MapPin} label="Gate" value={flight.gate ? `${flight.gate} · T${flight.terminal ?? "-"}` : "TBA"} />
-        <Detail icon={Ticket} label="Seat" value={`${booking.seat_number} · ${booking.seat_class}`} />
-        <Detail icon={Plane} label="Flight" value={flight.flight_number} />
+      <div className="p-5 md:p-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <Detail icon={Calendar} label="Date" value={formatDate(flight.departure_time)} />
+          <Detail
+            icon={MapPin}
+            label="Gate"
+            value={flight.gate ? `${flight.gate} · T${flight.terminal ?? "-"}` : "TBA"}
+          />
+          <Detail
+            icon={Ticket}
+            label="Seat"
+            value={`${booking.seat_number} · ${booking.seat_class}`}
+          />
+          <Detail icon={Plane} label="Flight" value={flight.flight_number} />
+          <Detail
+            icon={Ticket}
+            label="Payment"
+            value={getPaymentMethodLabel(booking.payment_method)}
+          />
+          <Detail icon={Ticket} label="Total" value={formatCurrencyInr(Number(booking.total_price))} />
+        </div>
+
+        {canRequestCancellation && !approvalUnavailable && (
+          <div className="mt-5 flex justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={requestCancellation}
+              disabled={requestingCancellation}
+            >
+              {requestingCancellation ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Ban className="mr-2 h-4 w-4" />
+              )}
+              Request cancellation
+            </Button>
+          </div>
+        )}
+
+        {canRequestCancellation && approvalUnavailable && (
+          <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Cancellation approval will be available after the database update is applied.
+          </div>
+        )}
       </div>
     </motion.div>
+  );
+}
+
+async function requestBookingCancellation({
+  bookingId,
+  userId,
+}: {
+  bookingId: string;
+  userId: string;
+}) {
+  const requestedResult = await supabase
+    .from("bookings")
+    .update({ status: "cancellation_requested" })
+    .eq("id", bookingId)
+    .eq("user_id", userId);
+
+  if (!requestedResult.error || !isMissingCancellationRequestedEnumError(requestedResult.error.message)) {
+    return { error: requestedResult.error, needsSchemaUpdate: false };
+  }
+
+  return {
+    error: null,
+    needsSchemaUpdate: true,
+  };
+}
+
+function isMissingCancellationRequestedEnumError(message: string) {
+  const lowerMessage = message.toLowerCase();
+  return lowerMessage.includes("booking_status") && lowerMessage.includes("cancellation_requested");
+}
+
+function BookingStatusBadge({ status }: { status: Booking["status"] }) {
+  const meta =
+    status === "confirmed"
+      ? "bg-success/15 text-success border-success/30"
+      : status === "pending"
+        ? "bg-warning/15 text-warning-foreground border-warning/40"
+        : status === "cancellation_requested"
+          ? "bg-amber-500/15 text-amber-700 border-amber-500/30"
+        : "bg-destructive/15 text-destructive border-destructive/30";
+
+  const label = status === "cancellation_requested" ? "cancellation requested" : status;
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium capitalize ${meta}`}
+    >
+      {label.replace("_", " ")}
+    </span>
   );
 }
 
