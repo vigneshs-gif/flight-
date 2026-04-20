@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { notifyBookingStatusEmail } from "@/lib/booking-email";
+import { updateBookingStatus as updateBookingStatusRequest } from "@/lib/booking-status";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -285,9 +286,9 @@ function BookingsAdmin() {
   }, [queryClient]);
 
   const updateBookingStatus = async (id: string, status: BookingStatus) => {
-    const { error } = await supabase.from("bookings").update({ status }).eq("id", id);
-    if (error) {
-      toast.error(error.message);
+    const result = await updateBookingStatusRequest(id, status);
+    if (!result.ok) {
+      toast.error(result.message ?? "Unable to update booking.");
       return;
     }
 

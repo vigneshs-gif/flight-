@@ -6,6 +6,7 @@ import { Plane, Ticket, Calendar, MapPin, Ban, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
+import { updateBookingStatus } from "@/lib/booking-status";
 import { Button } from "@/components/ui/button";
 import {
   StatusBadge,
@@ -161,7 +162,6 @@ function BookingCard({
     setRequestingCancellation(true);
     const { error, needsSchemaUpdate } = await requestBookingCancellation({
       bookingId: booking.id,
-      userId,
     });
     setRequestingCancellation(false);
 
@@ -270,30 +270,14 @@ function BookingCard({
 
 async function requestBookingCancellation({
   bookingId,
-  userId,
 }: {
   bookingId: string;
-  userId: string;
 }) {
-  const requestedResult = await supabase
-    .from("bookings")
-    .update({ status: "cancellation_requested" })
-    .eq("id", bookingId)
-    .eq("user_id", userId);
-
-  if (!requestedResult.error || !isMissingCancellationRequestedEnumError(requestedResult.error.message)) {
-    return { error: requestedResult.error, needsSchemaUpdate: false };
-  }
-
+  const result = await updateBookingStatus(bookingId, "cancellation_requested");
   return {
-    error: null,
-    needsSchemaUpdate: true,
+    error: result.ok ? null : new Error(result.message ?? "Unable to request cancellation."),
+    needsSchemaUpdate: false,
   };
-}
-
-function isMissingCancellationRequestedEnumError(message: string) {
-  const lowerMessage = message.toLowerCase();
-  return lowerMessage.includes("booking_status") && lowerMessage.includes("cancellation_requested");
 }
 
 function BookingStatusBadge({ status }: { status: Booking["status"] }) {
